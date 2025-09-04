@@ -21,7 +21,13 @@
     "x402-axios": "^0.4.1",
     "lucide-react": "^0.263.1",
     "date-fns": "^2.30.0",
-    "react-router-dom": "^6.8.1"
+    "react-router-dom": "^6.8.1",
+    "@openzeppelin/contracts": "^5.0.0",
+    "ethers": "^6.8.0",
+    "react-hot-toast": "^2.4.1",
+    "react-dropzone": "^14.2.3",
+    "clsx": "^2.0.0",
+    "class-variance-authority": "^0.7.0"
   },
   "devDependencies": {
     "@types/react": "^18.0.28",
