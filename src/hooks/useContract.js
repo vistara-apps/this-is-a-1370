@@ -1,4 +1,4 @@
-import { useContract, useContractRead, useContractWrite, usePrepareContractWrite } from 'wagmi';
+import { useReadContract, useWriteContract, useSimulateContract } from 'wagmi';
 import { parseUnits, formatUnits } from 'viem';
 import { base } from 'wagmi/chains';
 
@@ -98,40 +98,31 @@ const USDC_ABI = [
 ];
 
 export const useFilePayContract = () => {
-  const contract = useContract({
+  return {
     address: FILEPAY_CONTRACT_ADDRESS,
     abi: FILEPAY_ABI,
-  });
-
-  return contract;
+  };
 };
 
 export const useUSDCContract = () => {
-  const contract = useContract({
+  return {
     address: USDC_CONTRACT_ADDRESS,
     abi: USDC_ABI,
-  });
-
-  return contract;
+  };
 };
 
 // Hook for registering a file on the blockchain
 export const useRegisterFile = () => {
-  const { config } = usePrepareContractWrite({
-    address: FILEPAY_CONTRACT_ADDRESS,
-    abi: FILEPAY_ABI,
-    functionName: 'registerFile',
-  });
-
-  const { write, data, error, isLoading } = useContractWrite(config);
+  const { writeContract, data, error, isPending } = useWriteContract();
 
   const registerFile = async (fileId, priceInUSD) => {
-    if (!write) throw new Error('Contract write not ready');
-    
     // Convert USD price to USDC units (6 decimals)
     const priceInUSDC = parseUnits(priceInUSD.toString(), 6);
     
-    return write({
+    return writeContract({
+      address: FILEPAY_CONTRACT_ADDRESS,
+      abi: FILEPAY_ABI,
+      functionName: 'registerFile',
       args: [fileId, priceInUSDC],
     });
   };
@@ -140,24 +131,19 @@ export const useRegisterFile = () => {
     registerFile,
     data,
     error,
-    isLoading,
+    isLoading: isPending,
   };
 };
 
 // Hook for creating a payment
 export const useCreatePayment = () => {
-  const { config } = usePrepareContractWrite({
-    address: FILEPAY_CONTRACT_ADDRESS,
-    abi: FILEPAY_ABI,
-    functionName: 'createPayment',
-  });
-
-  const { write, data, error, isLoading } = useContractWrite(config);
+  const { writeContract, data, error, isPending } = useWriteContract();
 
   const createPayment = async (fileId) => {
-    if (!write) throw new Error('Contract write not ready');
-    
-    return write({
+    return writeContract({
+      address: FILEPAY_CONTRACT_ADDRESS,
+      abi: FILEPAY_ABI,
+      functionName: 'createPayment',
       args: [fileId],
     });
   };
@@ -166,24 +152,19 @@ export const useCreatePayment = () => {
     createPayment,
     data,
     error,
-    isLoading,
+    isLoading: isPending,
   };
 };
 
 // Hook for completing a payment
 export const useCompletePayment = () => {
-  const { config } = usePrepareContractWrite({
-    address: FILEPAY_CONTRACT_ADDRESS,
-    abi: FILEPAY_ABI,
-    functionName: 'completePayment',
-  });
-
-  const { write, data, error, isLoading } = useContractWrite(config);
+  const { writeContract, data, error, isPending } = useWriteContract();
 
   const completePayment = async (paymentId) => {
-    if (!write) throw new Error('Contract write not ready');
-    
-    return write({
+    return writeContract({
+      address: FILEPAY_CONTRACT_ADDRESS,
+      abi: FILEPAY_ABI,
+      functionName: 'completePayment',
       args: [paymentId],
     });
   };
@@ -192,27 +173,22 @@ export const useCompletePayment = () => {
     completePayment,
     data,
     error,
-    isLoading,
+    isLoading: isPending,
   };
 };
 
 // Hook for approving USDC spending
 export const useApproveUSDC = () => {
-  const { config } = usePrepareContractWrite({
-    address: USDC_CONTRACT_ADDRESS,
-    abi: USDC_ABI,
-    functionName: 'approve',
-  });
-
-  const { write, data, error, isLoading } = useContractWrite(config);
+  const { writeContract, data, error, isPending } = useWriteContract();
 
   const approveUSDC = async (amountInUSD) => {
-    if (!write) throw new Error('Contract write not ready');
-    
     // Convert USD to USDC units and add some buffer for fees
     const amountInUSDC = parseUnits((amountInUSD * 1.1).toString(), 6); // 10% buffer
     
-    return write({
+    return writeContract({
+      address: USDC_CONTRACT_ADDRESS,
+      abi: USDC_ABI,
+      functionName: 'approve',
       args: [FILEPAY_CONTRACT_ADDRESS, amountInUSDC],
     });
   };
@@ -221,26 +197,30 @@ export const useApproveUSDC = () => {
     approveUSDC,
     data,
     error,
-    isLoading,
+    isLoading: isPending,
   };
 };
 
 // Hook for reading file information
 export const useFileInfo = (fileId) => {
-  const { data: creator } = useContractRead({
+  const { data: creator } = useReadContract({
     address: FILEPAY_CONTRACT_ADDRESS,
     abi: FILEPAY_ABI,
     functionName: 'fileCreators',
     args: [fileId],
-    enabled: !!fileId,
+    query: {
+      enabled: !!fileId,
+    },
   });
 
-  const { data: priceRaw } = useContractRead({
+  const { data: priceRaw } = useReadContract({
     address: FILEPAY_CONTRACT_ADDRESS,
     abi: FILEPAY_ABI,
     functionName: 'filePrices',
     args: [fileId],
-    enabled: !!fileId,
+    query: {
+      enabled: !!fileId,
+    },
   });
 
   const price = priceRaw ? parseFloat(formatUnits(priceRaw, 6)) : 0;
@@ -254,20 +234,24 @@ export const useFileInfo = (fileId) => {
 
 // Hook for reading payment information
 export const usePaymentInfo = (paymentId) => {
-  const { data: payment, isLoading } = useContractRead({
+  const { data: payment, isLoading } = useReadContract({
     address: FILEPAY_CONTRACT_ADDRESS,
     abi: FILEPAY_ABI,
     functionName: 'getPayment',
     args: [paymentId],
-    enabled: !!paymentId,
+    query: {
+      enabled: !!paymentId,
+    },
   });
 
-  const { data: isValid } = useContractRead({
+  const { data: isValid } = useReadContract({
     address: FILEPAY_CONTRACT_ADDRESS,
     abi: FILEPAY_ABI,
     functionName: 'isPaymentValid',
     args: [paymentId],
-    enabled: !!paymentId,
+    query: {
+      enabled: !!paymentId,
+    },
   });
 
   return {
@@ -286,20 +270,24 @@ export const usePaymentInfo = (paymentId) => {
 
 // Hook for reading USDC balance and allowance
 export const useUSDCInfo = (userAddress) => {
-  const { data: balance } = useContractRead({
+  const { data: balance } = useReadContract({
     address: USDC_CONTRACT_ADDRESS,
     abi: USDC_ABI,
     functionName: 'balanceOf',
     args: [userAddress],
-    enabled: !!userAddress,
+    query: {
+      enabled: !!userAddress,
+    },
   });
 
-  const { data: allowance } = useContractRead({
+  const { data: allowance } = useReadContract({
     address: USDC_CONTRACT_ADDRESS,
     abi: USDC_ABI,
     functionName: 'allowance',
     args: [userAddress, FILEPAY_CONTRACT_ADDRESS],
-    enabled: !!userAddress,
+    query: {
+      enabled: !!userAddress,
+    },
   });
 
   return {
