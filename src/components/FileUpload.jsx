@@ -1,6 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { Upload, X, File, DollarSign, Clock, Users } from 'lucide-react';
+import { Upload, X, File, DollarSign, Clock, Users, AlertCircle, CheckCircle } from 'lucide-react';
 import { useFileContext } from '../context/FileContext';
+import { pinataService, apiService } from '../services/api';
+import { useRegisterFile, generateFileId } from '../hooks/useContract';
+import { useAccount } from 'wagmi';
 
 const FileUpload = () => {
   const [dragActive, setDragActive] = useState(false);
@@ -11,8 +14,12 @@ const FileUpload = () => {
     maxDownloads: '100'
   });
   const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState('');
+  const [error, setError] = useState('');
   const fileInputRef = useRef(null);
   const { addFile } = useFileContext();
+  const { address, isConnected } = useAccount();
+  const { registerFile, isLoading: isRegistering } = useRegisterFile();
 
   const handleDrag = (e) => {
     e.preventDefault();
@@ -41,27 +48,71 @@ const FileUpload = () => {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !formData.price) return;
+    if (!selectedFile || !formData.price || !isConnected) {
+      setError('Please connect your wallet and select a file with price');
+      return;
+    }
 
     setUploading(true);
+    setError('');
+    setUploadStatus('Preparing upload...');
     
-    // Simulate upload to Pinata
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    const newFile = {
-      fileName: selectedFile.name,
-      price: parseFloat(formData.price),
-      accessDuration: parseInt(formData.accessDuration),
-      maxDownloads: parseInt(formData.maxDownloads),
-      storageUrl: `https://ipfs.io/ipfs/mock-hash-${Date.now()}`
-    };
-    
-    addFile(newFile);
-    
-    // Reset form
-    setSelectedFile(null);
-    setFormData({ price: '', accessDuration: '24', maxDownloads: '100' });
-    setUploading(false);
+    try {
+      // Step 1: Upload file to Pinata IPFS
+      setUploadStatus('Uploading to IPFS...');
+      const pinataResult = await pinataService.uploadFile(selectedFile, {
+        name: selectedFile.name,
+        creator: address,
+        price: formData.price,
+        keyvalues: {
+          accessDuration: formData.accessDuration,
+          maxDownloads: formData.maxDownloads,
+        },
+      });
+
+      // Step 2: Generate unique file ID
+      const fileId = generateFileId(selectedFile.name, address, Date.now());
+
+      // Step 3: Register file on blockchain
+      setUploadStatus('Registering on blockchain...');
+      await registerFile(fileId, parseFloat(formData.price));
+
+      // Step 4: Save file metadata to backend
+      setUploadStatus('Saving metadata...');
+      const fileData = {
+        id: fileId,
+        fileName: selectedFile.name,
+        creatorId: address,
+        price: parseFloat(formData.price),
+        accessDuration: parseInt(formData.accessDuration),
+        maxDownloads: parseInt(formData.maxDownloads),
+        storageUrl: pinataResult.url,
+        ipfsHash: pinataResult.ipfsHash,
+        fileSize: selectedFile.size,
+        fileType: selectedFile.type,
+      };
+
+      await apiService.createFile(fileData);
+      
+      // Step 5: Add to local context
+      addFile(fileData);
+      
+      setUploadStatus('Upload completed successfully!');
+      
+      // Reset form after delay
+      setTimeout(() => {
+        setSelectedFile(null);
+        setFormData({ price: '', accessDuration: '24', maxDownloads: '100' });
+        setUploadStatus('');
+      }, 2000);
+      
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setError(error.message || 'Upload failed. Please try again.');
+      setUploadStatus('');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const removeFile = () => {
@@ -70,6 +121,41 @@ const FileUpload = () => {
 
   return (
     <div className="space-y-6">
+      {/* Connection Status */}
+      {!isConnected && (
+        <div className="flex items-center space-x-2 p-3 bg-orange-500/10 border border-orange-500/20 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-orange-400" />
+          <div>
+            <p className="text-orange-400 font-medium">Wallet Not Connected</p>
+            <p className="text-orange-300 text-sm">
+              Please connect your wallet to upload and sell files.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="flex items-center space-x-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+          <AlertCircle className="w-5 h-5 text-red-400" />
+          <div>
+            <p className="text-red-400 font-medium">Upload Error</p>
+            <p className="text-red-300 text-sm">{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Success Message */}
+      {uploadStatus && !error && (
+        <div className="flex items-center space-x-2 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+          <CheckCircle className="w-5 h-5 text-green-400" />
+          <div>
+            <p className="text-green-400 font-medium">Upload Status</p>
+            <p className="text-green-300 text-sm">{uploadStatus}</p>
+          </div>
+        </div>
+      )}
+
       {/* File Drop Zone */}
       <div
         className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all duration-200 ${
@@ -187,14 +273,24 @@ const FileUpload = () => {
           {/* Upload Button */}
           <button
             onClick={handleUpload}
-            disabled={!selectedFile || !formData.price || uploading}
-            className={`w-full py-3 rounded-lg font-medium transition-all duration-200 ${
-              !selectedFile || !formData.price || uploading
+            disabled={!selectedFile || !formData.price || uploading || !isConnected}
+            className={`w-full py-3 rounded-lg font-medium transition-all duration-200 flex items-center justify-center space-x-2 ${
+              !selectedFile || !formData.price || uploading || !isConnected
                 ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
                 : 'bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:from-purple-600 hover:to-blue-600'
             }`}
           >
-            {uploading ? 'Uploading to IPFS...' : 'Upload & Publish File'}
+            {uploading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <span>{uploadStatus || 'Processing...'}</span>
+              </>
+            ) : (
+              <>
+                <Upload className="w-4 h-4" />
+                <span>Upload & Publish File</span>
+              </>
+            )}
           </button>
         </div>
       )}
